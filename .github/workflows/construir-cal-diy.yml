@@ -1,0 +1,68 @@
+# Construye la imagen de Docker de Cal.diy (código oficial de calcom/cal.diy)
+# para el Synology DS224+ (amd64) y la publica en ghcr.io/<tu-usuario>/cal-diy.
+# La imagen NO contiene contraseñas: las claves se ponen en el NAS al arrancar.
+# Uso: pestaña "Actions" → "Construir imagen Cal.diy" → "Run workflow".
+
+name: Construir imagen Cal.diy
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Versión de Cal.diy a construir (rama o commit)"
+        default: "main"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  construir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - name: Liberar espacio en disco
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: true
+
+      - name: Descargar el código oficial de Cal.diy
+        uses: actions/checkout@v4
+        with:
+          repository: calcom/cal.diy
+          ref: ${{ inputs.ref }}
+
+      - name: Preparar nombres
+        id: v
+        run: |
+          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "fecha=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Preparar Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Iniciar sesión en el registro de GitHub
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y publicar la imagen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            NEXT_PUBLIC_WEBAPP_URL=https://citas.iberoasesores.com
+            CALCOM_TELEMETRY_DISABLED=1
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=Cal.diy (calcom/cal.diy ${{ steps.v.outputs.sha }}) para Ibero Asesores
+          tags: |
+            ghcr.io/${{ steps.v.outputs.owner }}/cal-diy:latest
+            ghcr.io/${{ steps.v.outputs.owner }}/cal-diy:${{ steps.v.outputs.fecha }}-${{ steps.v.outputs.sha }}
